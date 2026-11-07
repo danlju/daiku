@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head}"></head>
+<body><div class="app"><aside th:replace="~{layout :: sidebar}"></aside>
+<main class="main"><header class="topbar"><a th:href="@{/projects/{id}(id=${project.id})}" th:text="${project.name + ' / Board'}"></a><span class="local-badge" th:text="${'DK-' + ticket.id}"></span></header>
+<div class="content ticket-content"><div th:replace="~{layout :: notice}"></div><a class="back-link" th:href="@{/projects/{id}(id=${project.id})}">← Back to board</a>
+<div class="eyebrow" th:text="${'TICKET / DK-' + ticket.id}"></div><h1 th:text="${ticket.title}"></h1>
+<div class="ticket-grid"><section class="panel edit-ticket"><h2>Shape the next change</h2>
+  <form th:action="@{/tickets/{id}(id=${ticket.id})}" method="post"><input type="hidden" name="_csrf" th:value="${csrf}"><input type="hidden" name="version" th:value="${ticket.version}">
+    <label for="title">Title</label><input id="title" name="title" th:value="${ticket.title}" maxlength="200" required>
+    <label for="description">Description</label><textarea id="description" name="description" rows="6" maxlength="20000" th:text="${ticket.description}"></textarea>
+    <label for="criteria">Acceptance criteria</label><textarea id="criteria" name="acceptanceCriteria" rows="5" maxlength="10000" th:text="${ticket.acceptanceCriteria}"></textarea>
+    <div class="field-pair"><div><label for="status">Board status</label><select id="status" name="status"><option th:each="status : ${statuses}" th:value="${status}" th:text="${status.label}" th:selected="${status == ticket.status}"></option></select></div>
+      <div><label for="priority">Priority</label><select id="priority" name="priority"><option th:each="p : ${ {'LOW','MEDIUM','HIGH'} }" th:value="${p}" th:text="${p}" th:selected="${p == ticket.priority}"></option></select></div></div>
+    <p class="field-help">Move to Ready when you accept this ticket. Implementation is manual in this increment.</p>
+    <button class="button primary" type="submit">Save changes →</button>
+  </form>
+  <div class="ticket-delete"><a class="button danger" th:href="@{/tickets/{id}/delete(id=${ticket.id})}">Delete ticket</a></div>
+  </section>
+  <aside class="panel activity"><div class="eyebrow">THE PAPER TRAIL</div><h2>Activity</h2><ol><li th:each="event : ${history}" th:text="${event}"></li></ol></aside>
+</div></div></main></div></body></html>

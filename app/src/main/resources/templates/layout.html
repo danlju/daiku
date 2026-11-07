@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:fragment="head">
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="${pageTitle + ' · Daiku'}">Daiku</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<aside class="sidebar" th:fragment="sidebar">
+  <a class="brand" th:href="@{/}"><span class="brand-mark">大</span> daiku<span class="version">/ 01</span></a>
+  <div class="workspace-label">PERSONAL WORKSPACE</div>
+  <a class="nav-home" th:href="@{/}">◫ &nbsp; Project workspace</a>
+  <div class="nav-label">PROJECTS <a th:href="@{/projects/new}" aria-label="Add a project">+</a></div>
+  <nav aria-label="Projects">
+    <a class="project-link" th:each="p : ${projects}" th:href="@{/projects/{id}(id=${p.id})}"
+       th:classappend="${project != null and project.id == p.id} ? 'selected' : ''">
+      <span class="project-dot"></span><span th:text="${p.name}">Project</span>
+    </a>
+  </nav>
+  <a class="add-link" th:href="@{/projects/new}">+ Add a project</a>
+  <div class="sidebar-footer"><span class="live-dot"></span> Local workspace<br><small>Plan thoughtfully. Build steadily.</small></div>
+</aside>
+<div th:fragment="notice" class="notice" role="status" th:if="${notice}" th:text="${notice}"></div>
+</body></html>

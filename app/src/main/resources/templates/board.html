@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head}"></head>
+<body><div class="app"><aside th:replace="~{layout :: sidebar}"></aside>
+<main class="main"><header class="topbar"><span>Projects <span class="crumb" th:text="${'/ ' + project.name}"></span></span><span class="local-badge">PERSONAL WORKSPACE</span></header>
+<div class="content"><div th:replace="~{layout :: notice}"></div>
+  <div class="project-heading"><div><div class="eyebrow">PROJECT OVERVIEW</div><h1 th:text="${project.name}">Project</h1>
+    <a class="repo-link" th:if="${project.connected()}" th:href="${'https://github.com/' + project.repository}" th:text="${project.repository}" target="_blank" rel="noopener noreferrer"></a>
+    <p class="subtitle" th:unless="${project.connected()}">Local project · A clear view of what comes next.</p>
+  </div><a class="button primary" href="#new-ticket">+ New ticket</a></div>
+  <div class="project-meta"><span><span class="live-dot"></span> <b th:text="${ticketCount}">0</b> tickets</span>
+    <span th:if="${project.connected()}" th:text="${'Default branch: ' + project.defaultBranch}"></span>
+    <span class="muted">Manual implementation · Agent execution coming later</span>
+  </div>
+  <div class="section-heading"><h2>Work board</h2><span>Drag cards between columns to update their status.</span></div>
+  <p class="board-feedback" role="status" aria-live="polite" aria-atomic="true"></p>
+  <div class="board" aria-label="Task board" th:attr="data-csrf=${csrf}">
+    <section class="column" th:each="column : ${columns}" th:attr="data-status=${column.key}">
+      <div class="column-heading"><h3><span class="status-dot" th:classappend="${column.key.name().toLowerCase()}"></span><span th:text="${column.key.label}"></span></h3><span class="count" th:text="${column.value.size()}"></span></div>
+      <article class="ticket-card" th:each="ticket : ${column.value}" th:attr="data-version=${ticket.version},data-move-url=@{/tickets/{id}/status(id=${ticket.id})},data-ticket-id=${ticket.id}">
+        <a class="ticket-link" th:href="@{/tickets/{id}(id=${ticket.id})}" draggable="false">
+        <div class="ticket-top"><span th:text="${'DK-' + ticket.id}"></span><span class="priority" th:classappend="${ticket.priority.toLowerCase()}" th:text="${ticket.priority}"></span></div>
+        <h4 th:text="${ticket.title}"></h4><p th:if="${!ticket.description.isEmpty()}" th:text="${ticket.description}"></p>
+        <div class="ticket-footer"><span class="avatar">Y</span> You <span class="ticket-arrow">↗</span></div>
+        </a>
+        <select class="ticket-move" hidden th:attr="aria-label=${'Move DK-' + ticket.id + ' to'}">
+          <option value="">Move to…</option>
+          <option th:each="status : ${statuses}" th:value="${status}" th:text="${status.label}"></option>
+        </select>
+      </article>
+      <div class="column-empty" th:hidden="${!column.value.isEmpty()}">No tickets yet</div>
+    </section>
+  </div>
+  <div class="lower-grid">
+    <section class="panel build-panel"><div class="panel-heading"><div><div class="eyebrow">CONTINUOUS INTEGRATION</div><h2>Recent builds</h2></div>
+      <form th:if="${project.connected()}" th:action="@{/projects/{id}/refresh(id=${project.id})}" method="post"><input type="hidden" name="_csrf" th:value="${csrf}"><button class="button secondary small" type="submit">↻ Refresh</button></form>
+    </div>
+      <p class="sync-error" role="alert" th:if="${project.syncError}" th:text="${project.syncError}"></p>
+      <div class="build-empty" th:if="${builds.isEmpty()}"><div class="empty-icon">⌁</div><h3 th:text="${project.connected() ? 'No workflow runs yet' : 'Builds start with a connection'}"></h3>
+        <p th:text="${project.connected() ? 'Run an existing GitHub Actions workflow, then refresh here.' : 'Connect a GitHub repository as a new project to follow its builds here.'}"></p>
+      </div>
+      <div class="build-list" th:unless="${builds.isEmpty()}"><a class="build-row" th:each="build : ${builds}" th:href="${build.htmlUrl}" target="_blank" rel="noopener noreferrer">
+        <span class="build-indicator" th:classappend="${build.tone}">●</span><div class="build-info"><strong th:text="${build.name + ' #' + build.runNumber}"></strong><small><span th:text="${build.branch}"></span> · <code th:text="${build.shortSha}"></code></small></div>
+        <span class="build-status" th:classappend="${build.tone}" th:text="${build.label}"></span><span>↗</span>
+      </a></div>
+      <p class="panel-footnote" th:if="${project.syncedAt}" th:text="${'Last refreshed ' + #temporals.format(project.syncedAt, 'MMM d, HH:mm XXX') + ' · polls every 5 minutes'}"></p>
+    </section>
+    <section class="panel new-ticket" id="new-ticket"><div class="eyebrow">CAPTURE AN IMPROVEMENT</div><h2>What should happen next?</h2>
+      <form th:action="@{/projects/{id}/tickets(id=${project.id})}" method="post"><input type="hidden" name="_csrf" th:value="${csrf}">
+        <label for="title">Title</label><input id="title" name="title" maxlength="200" placeholder="A small, specific improvement" required>
+        <label for="description">Description</label><textarea id="description" name="description" maxlength="20000" rows="3" placeholder="What’s the problem, and why does it matter?"></textarea>
+        <label for="criteria">Acceptance criteria</label><textarea id="criteria" name="acceptanceCriteria" maxlength="10000" rows="2" placeholder="How will you know this is done?"></textarea>
+        <div class="form-bottom"><div><label for="priority">Priority</label><select id="priority" name="priority"><option value="LOW">Low</option><option value="MEDIUM" selected>Medium</option><option value="HIGH">High</option></select></div><button class="button primary" type="submit">Create ticket →</button></div>
+      </form>
+    </section>
+  </div>
+</div></main></div><script th:src="@{/js/board.js}" defer></script></body></html>

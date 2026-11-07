@@ -1,0 +1,7 @@
+target/
+/data/
+/.env
+*.pem
+*.key
+.idea/
+*.iml

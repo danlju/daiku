@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head}"></head>
+<body><div class="app"><aside th:replace="~{layout :: sidebar}"></aside>
+<main class="main"><header class="topbar"><a th:href="@{/projects/{id}(id=${project.id})}" th:text="${project.name + ' / Board'}"></a><span class="local-badge" th:text="${'DK-' + ticket.id}"></span></header>
+<div class="content ticket-content"><a class="back-link" th:href="@{/tickets/{id}(id=${ticket.id})}">← Back to ticket</a>
+  <section class="panel delete-confirmation" aria-labelledby="delete-heading">
+    <div class="eyebrow" th:text="${'TICKET / DK-' + ticket.id}"></div>
+    <h1 id="delete-heading">Delete this ticket?</h1>
+    <h2 th:text="${ticket.title}"></h2>
+    <p class="subtitle">This permanently deletes the ticket and its activity history. This cannot be undone.</p>
+    <form th:action="@{/tickets/{id}/delete(id=${ticket.id})}" method="post">
+      <input type="hidden" name="_csrf" th:value="${csrf}">
+      <input type="hidden" name="version" th:value="${ticket.version}">
+      <div class="delete-actions">
+        <a class="button secondary" th:href="@{/tickets/{id}(id=${ticket.id})}">Cancel</a>
+        <button class="button danger" type="submit">Delete ticket permanently</button>
+      </div>
+    </form>
+  </section>
+</div></main></div></body></html>

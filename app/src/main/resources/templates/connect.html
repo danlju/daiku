@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head}"></head>
+<body><div class="app"><aside th:replace="~{layout :: sidebar}"></aside>
+<main class="main"><header class="topbar"><span>Workspace <span class="crumb">/ Projects</span></span><span class="local-badge">INCREMENT 01</span></header>
+<div class="content connect-content"><div th:replace="~{layout :: notice}"></div>
+  <div class="eyebrow">A PLACE FOR YOUR NEXT ITERATION</div>
+  <h1>Your projects, moving forward.</h1><p class="subtitle">Connect your code. Capture the next improvement. Keep an eye on every build.</p>
+  <div class="setup-grid">
+    <section class="panel setup-card"><div class="step">01 / CONNECT</div><h2>Bring a repository</h2>
+      <p>Connect a repository through your GitHub App to see its Actions workflow runs alongside your work.</p>
+      <div class="info-box" th:unless="${githubConfigured}">GitHub isn’t configured yet. Set <code>GITHUB_APP_ID</code> and <code>GITHUB_PRIVATE_KEY_PATH</code>, then restart. You can create a local project now.</div>
+      <form th:action="@{/projects/connect}" method="post">
+        <input type="hidden" name="_csrf" th:value="${csrf}">
+        <label for="repository">GitHub repository</label><input id="repository" name="repository" placeholder="your-name/your-project" maxlength="240" required th:disabled="${!githubConfigured}">
+        <p class="field-help">Install your GitHub App on this repository first. See the README for setup.</p>
+        <button class="button primary" type="submit" th:disabled="${!githubConfigured}">Connect repository <span>↗</span></button>
+      </form>
+    </section>
+    <section class="panel setup-card"><div class="step">02 / START PLANNING</div><h2>Start with a board</h2>
+      <p>Try the workflow with a local project. Your tickets and history are saved between restarts.</p>
+      <form th:action="@{/projects/local}" method="post">
+        <input type="hidden" name="_csrf" th:value="${csrf}">
+        <label for="name">Project name</label><input id="name" name="name" placeholder="My next project" maxlength="100" required>
+        <p class="field-help">A local project has no repository or build synchronization.</p>
+        <button class="button secondary" type="submit">Create local project <span>→</span></button>
+      </form>
+    </section>
+  </div><p class="quiet-note">This increment is for planning and build visibility. Moving a ticket to Ready records your intent; it doesn’t start an agent.</p>
+</div></main></div></body></html>
