@@ -17,6 +17,12 @@ The default bind address is `127.0.0.1`. This increment has no user authenticati
 
 To remove a ticket, open it and choose **Delete ticket**. Review the confirmation page, then choose **Delete ticket permanently**, or **Cancel** to keep it. Deletion also removes its activity history and returns you to the project board.
 
+### Archive projects
+
+Choose **Archive project** on a project board to set it aside. Archived projects disappear from the active navigation and appear under **Archived projects**, where you can open or restore them. Their tickets, activity history, imported builds, and GitHub connection are preserved. Ticket changes and build refreshes are disabled while archived; polling skips them and webhook updates are ignored. Restore a project to resume work and polling. Connecting the same repository again opens its archived project without restoring it automatically.
+
+Archiving does not delete data or change the GitHub repository or App installation.
+
 ### This workspace's offline environment
 
 Maven Central cannot be resolved here, and the shared Maven cache is read-only. Build and test offline with:
@@ -45,7 +51,9 @@ mvn package
 java -jar app/target/daiku-app-0.1.0-SNAPSHOT.jar
 ```
 
-5. Choose **Add a project**, enter `owner/repository` (or its `https://github.com/…` URL), and select **Connect repository**. Daiku discovers the installation, reads repository metadata, and imports the most recent 30 workflow runs. An existing connection is reused when you submit the same repository again. Local-only projects and connected projects are separate in this increment.
+5. Choose **Add a project**, enter `owner/repository` (or its `https://github.com/…` URL), and select **Connect repository**. Daiku discovers the installation, reads repository metadata, and imports the most recent 30 workflow runs. An existing connection is reused when you submit the same repository again. To connect an existing local project instead, open its board and choose **Connect GitHub**. Its name, tickets, activity history, and board URL are preserved. Repositories already connected to another project (including an archived one) cannot be attached. Restore archived local projects before connecting; existing repository connections cannot be replaced. A failed initial build refresh keeps the connection so you can retry from the board.
+
+If a connection fails, Daiku identifies the failed GitHub step and HTTP status. An installation lookup failure (404) can mean a misspelled repository or that the App is not installed with access to it. Check the installation on the account that owns the repository and include the private repository under **Repository access**. Changes to App permissions must also be approved for the installation. Authentication errors (401) point to the App ID/key pair or system clock; Actions access errors should prompt a check of the installation's **Actions: read** permission. Error messages omit credentials and upstream response bodies.
 
 Builds can be refreshed manually and are polled every five minutes. The UI shows the latest 15 imported runs, with links to GitHub for full logs and artifacts. Workflows that have not run yet do not appear. Older runs beyond the 30-run refresh window are not backfilled.
 

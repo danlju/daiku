@@ -18,6 +18,7 @@
     </a>
   </nav>
   <a class="add-link" th:href="@{/projects/new}">+ Add a project</a>
+  <a class="add-link" th:href="@{/projects/archived}">Archived projects</a>
   <div class="sidebar-footer"><span class="live-dot"></span> Local workspace<br><small>Plan thoughtfully. Build steadily.</small></div>
 </aside>
 <div th:fragment="notice" class="notice" role="status" th:if="${notice}" th:text="${notice}"></div>

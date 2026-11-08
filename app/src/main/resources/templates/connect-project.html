@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head}"></head>
+<body><div class="app"><aside th:replace="~{layout :: sidebar}"></aside>
+<main class="main"><header class="topbar"><a th:href="@{/projects/{id}(id=${project.id})}" th:text="${project.name + ' / Board'}"></a><span class="local-badge">PERSONAL WORKSPACE</span></header>
+<div class="content connect-content"><div th:replace="~{layout :: notice}"></div>
+  <a class="back-link" th:href="@{/projects/{id}(id=${project.id})}">← Back to board</a>
+  <div class="eyebrow">CONNECT YOUR CODE</div><h1>Connect GitHub</h1>
+  <p class="subtitle">Add a repository connection to <strong th:text="${project.name}"></strong>. Your project name, tickets, and activity history stay the same.</p>
+  <section class="panel setup-card"><h2>Choose a repository</h2>
+    <p>Install your GitHub App on this repository first, including it in the installation’s repository access selection.</p>
+    <div class="info-box" th:unless="${githubConfigured}">GitHub isn’t configured yet. Set <code>GITHUB_APP_ID</code> and <code>GITHUB_PRIVATE_KEY_PATH</code>, then restart Daiku.</div>
+    <form th:action="@{/projects/{id}/connect(id=${project.id})}" method="post">
+      <input type="hidden" name="_csrf" th:value="${csrf}">
+      <label for="repository">GitHub repository</label><input id="repository" name="repository" placeholder="owner/repository" maxlength="240" required th:disabled="${!githubConfigured}">
+      <p class="field-help">Enter owner/repository or its https://github.com/ URL. A repository can belong to one project, including archived projects.</p>
+      <div class="project-actions"><button class="button primary" type="submit" th:disabled="${!githubConfigured}">Connect repository →</button><a class="button secondary" th:href="@{/projects/{id}(id=${project.id})}">Cancel</a></div>
+    </form>
+  </section>
+</div></main></div></body></html>

@@ -1,5 +1,6 @@
 package dev.daiku.persistence;
 
+import static dev.daiku.core.ApplicationException.Kind.CONFLICT;
 import static dev.daiku.core.ApplicationException.Kind.NOT_FOUND;
 
 import dev.daiku.core.ApplicationException;
@@ -23,7 +24,8 @@ public class JdbcProjectRepository implements ProjectRepository {
               rs.getString("repository"),
               rs.getString("default_branch"),
               rs.getObject("synced_at", java.time.OffsetDateTime.class),
-              rs.getString("sync_error"));
+              rs.getString("sync_error"),
+              rs.getBoolean("archived"));
 
   public JdbcProjectRepository(JdbcTemplate db) {
     this.db = db;
@@ -39,6 +41,12 @@ public class JdbcProjectRepository implements ProjectRepository {
     return db.query("SELECT * FROM projects WHERE id = ?", mapper, id).stream()
         .findFirst()
         .orElseThrow(() -> new ApplicationException(NOT_FOUND, "Project not found"));
+  }
+
+  @Override
+  public void setArchived(long id, boolean archived) {
+    if (db.update("UPDATE projects SET archived=? WHERE id=?", archived, id) == 0)
+      throw new ApplicationException(NOT_FOUND, "Project not found");
   }
 
   @Override
@@ -66,6 +74,37 @@ public class JdbcProjectRepository implements ProjectRepository {
         repository,
         branch);
     return byRepository(repositoryId, installationId);
+  }
+
+  @Override
+  public Project attachRepository(
+      long projectId, long repositoryId, long installationId, String repository, String branch) {
+    int changed;
+    try {
+      changed =
+          db.update(
+              "UPDATE projects SET repository_id=?,installation_id=?,repository=?,default_branch=?"
+                  + " WHERE id=? AND repository_id IS NULL AND archived=FALSE",
+              repositoryId,
+              installationId,
+              repository,
+              branch,
+              projectId);
+    } catch (org.springframework.dao.DuplicateKeyException e) {
+      throw new ApplicationException(
+          CONFLICT,
+          "This repository is already connected to another project, possibly an archived one. Open"
+              + " or restore that project, or choose a different repository.");
+    }
+    if (changed == 0) {
+      var project = get(projectId);
+      throw new ApplicationException(
+          CONFLICT,
+          project.archived()
+              ? "Restore this project before connecting a repository."
+              : "This project is already connected to a repository. Reload its board.");
+    }
+    return get(projectId);
   }
 
   @Override

@@ -92,7 +92,8 @@ public class WebhookService {
             projects.byRepository(
                 node.path("repository").path("id").asLong(),
                 node.path("installation").path("id").asLong());
-        if (project != null) builds.ingest(project, node.path("workflow_run"));
+        if (project != null && !project.archived())
+          builds.ingest(project, node.path("workflow_run"));
         db.update(
             "UPDATE webhook_deliveries SET state='PROCESSED',attempts=?,payload='' WHERE"
                 + " delivery_id=?",

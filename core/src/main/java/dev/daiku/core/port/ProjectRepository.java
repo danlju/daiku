@@ -9,10 +9,15 @@ public interface ProjectRepository {
 
   Project get(long id);
 
+  void setArchived(long id, boolean archived);
+
   Project createLocal(String name);
 
   Project connect(
       long repositoryId, long installationId, String name, String repository, String branch);
+
+  Project attachRepository(
+      long projectId, long repositoryId, long installationId, String repository, String branch);
 
   Project byRepository(long repositoryId, long installationId);
 

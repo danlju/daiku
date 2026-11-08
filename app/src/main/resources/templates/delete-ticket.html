@@ -9,7 +9,8 @@
     <h1 id="delete-heading">Delete this ticket?</h1>
     <h2 th:text="${ticket.title}"></h2>
     <p class="subtitle">This permanently deletes the ticket and its activity history. This cannot be undone.</p>
-    <form th:action="@{/tickets/{id}/delete(id=${ticket.id})}" method="post">
+    <p class="notice" th:if="${project.archived}">Restore this project from the board before deleting tickets.</p>
+    <form th:unless="${project.archived}" th:action="@{/tickets/{id}/delete(id=${ticket.id})}" method="post">
       <input type="hidden" name="_csrf" th:value="${csrf}">
       <input type="hidden" name="version" th:value="${ticket.version}">
       <div class="delete-actions">

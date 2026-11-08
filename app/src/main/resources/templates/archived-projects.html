@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head}"></head>
+<body><div class="app"><aside th:replace="~{layout :: sidebar}"></aside>
+<main class="main"><header class="topbar"><span>Archived projects</span><span class="local-badge">PERSONAL WORKSPACE</span></header>
+<div class="content"><div th:replace="~{layout :: notice}"></div>
+  <div class="eyebrow">PROJECT ARCHIVE</div><h1>Archived projects</h1>
+  <p class="subtitle">Tickets, activity history, and imported builds are preserved. Restore a project to resume work and build updates.</p>
+  <section class="panel" th:if="${archivedProjects.isEmpty()}"><h2>No archived projects</h2><p>Archive a project from its board when you want to set it aside.</p></section>
+  <section class="panel archived-project" th:each="p : ${archivedProjects}">
+    <div><h2><a th:href="@{/projects/{id}(id=${p.id})}" th:text="${p.name}"></a></h2>
+      <p class="muted" th:text="${p.connected() ? p.repository : 'Local project'}"></p></div>
+    <form th:action="@{/projects/{id}/restore(id=${p.id})}" method="post"><input type="hidden" name="_csrf" th:value="${csrf}"><button class="button secondary" type="submit">Restore project</button></form>
+  </section>
+</div></main></div></body></html>

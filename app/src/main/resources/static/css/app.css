@@ -17,3 +17,7 @@
 .delete-confirmation{max-width:650px}
 .delete-confirmation h2{overflow-wrap:anywhere}
 .delete-actions{display:flex;justify-content:flex-end;gap:12px;flex-wrap:wrap;margin-top:28px}
+
+.project-actions, .archived-project { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.archived-project { justify-content: space-between; margin-top: 16px; }
+.ticket-fields { border: 0; padding: 0; margin: 0; min-width: 0; }

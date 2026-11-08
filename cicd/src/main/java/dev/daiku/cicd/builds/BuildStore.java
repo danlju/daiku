@@ -42,7 +42,10 @@ public class BuildStore {
     OffsetDateTime updated = OffsetDateTime.parse(run.path("updated_at").asText());
     long attempt = run.path("run_attempt").asLong(1);
     // A project row lock serializes polling and webhook updates, including first inserts.
-    db.queryForObject("SELECT id FROM projects WHERE id=? FOR UPDATE", Long.class, project.id());
+    boolean archived =
+        db.queryForObject(
+            "SELECT archived FROM projects WHERE id=? FOR UPDATE", Boolean.class, project.id());
+    if (archived) return;
     var existing = db.queryForList("SELECT run_attempt, status FROM build_runs WHERE id=?", id);
     if (!existing.isEmpty()) {
       var row = existing.getFirst();

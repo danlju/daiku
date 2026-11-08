@@ -94,9 +94,110 @@ class GitHubClientTest {
     var client = new GitHubClient("", "", "https://api.github.com", json, builder);
     assertThatThrownBy(() -> client.repository("owner/example", "secret-token"))
         .isInstanceOf(IllegalStateException.class)
-        .hasMessage("GitHub request failed")
+        .hasMessageContaining("read repository metadata")
+        .hasMessageContaining("GitHub HTTP 403")
+        .hasMessageNotContaining("sensitive upstream body")
+        .hasMessageNotContaining("secret-token")
         .hasNoCause();
     server.verify();
+  }
+
+  @Test
+  void identifiesTheFailedStepAndProvidesStatusSpecificGuidance() throws Exception {
+    var generator = KeyPairGenerator.getInstance("RSA");
+    generator.initialize(2048);
+    Path pem = temp.resolve("test.pem");
+    Files.writeString(
+        pem,
+        "-----BEGIN PRIVATE KEY-----\n"
+            + Base64.getEncoder()
+                .encodeToString(generator.generateKeyPair().getPrivate().getEncoded())
+            + "\n-----END PRIVATE KEY-----\n");
+    String[][] cases = {
+      {"installation", "404", "/repos/owner/private/installation", "Repository access"},
+      {"installation", "401", "/repos/owner/private/installation", "same GitHub App"},
+      {"token", "403", "/app/installations/42/access_tokens", "not suspended"},
+      {"repository", "404", "/repos/owner/private", "Metadata read permission"},
+      {"runs", "403", "/repos/owner/private/actions/runs?per_page=30", "Actions read permission"},
+      {"repository", "429", "/repos/owner/private", "rate limited"},
+      {"repository", "503", "/repos/owner/private", "temporarily unavailable"}
+    };
+    for (String[] scenario : cases) {
+      var builder = RestClient.builder();
+      var server = MockRestServiceServer.bindTo(builder).build();
+      server
+          .expect(requestTo("https://api.github.com" + scenario[2]))
+          .andRespond(
+              withStatus(org.springframework.http.HttpStatus.valueOf(Integer.parseInt(scenario[1])))
+                  .body("sensitive upstream response secret-token"));
+      var client =
+          new GitHubClient("1234", pem.toString(), "https://api.github.com", json, builder);
+      assertThatThrownBy(
+              () -> {
+                switch (scenario[0]) {
+                  case "installation" -> client.installation("owner/private");
+                  case "token" -> client.token(42);
+                  case "repository" -> client.repository("owner/private", "secret-token");
+                  case "runs" -> client.runs("owner/private", "secret-token");
+                  default -> throw new AssertionError("Unknown scenario");
+                }
+              })
+          .isInstanceOf(GitHubAccessException.class)
+          .hasMessageContaining("GitHub HTTP " + scenario[1])
+          .hasMessageContaining(scenario[3])
+          .hasMessageNotContaining("sensitive upstream response")
+          .hasMessageNotContaining("secret-token")
+          .hasMessageNotContaining("owner/private")
+          .hasMessageNotContaining(pem.toString())
+          .hasNoCause();
+      server.verify();
+    }
+  }
+
+  @Test
+  void networkAndUnreadableResponsesHaveSafeMessages() {
+    for (boolean networkFailure : new boolean[] {true, false}) {
+      var builder = RestClient.builder();
+      var server = MockRestServiceServer.bindTo(builder).build();
+      var expectation = server.expect(requestTo("https://api.github.com/repos/owner/private"));
+      if (networkFailure) {
+        expectation.andRespond(
+            request -> {
+              throw new java.io.IOException("secret-token sensitive details");
+            });
+      } else {
+        expectation.andRespond(withSuccess("sensitive invalid JSON", MediaType.APPLICATION_JSON));
+      }
+      var client = new GitHubClient("", "", "https://api.github.com", json, builder);
+      assertThatThrownBy(() -> client.repository("owner/private", "secret-token"))
+          .isInstanceOf(GitHubAccessException.class)
+          .hasMessageContaining(networkFailure ? "Cannot reach GitHub" : "unreadable response")
+          .hasMessageNotContaining("secret-token")
+          .hasMessageNotContaining("sensitive")
+          .hasMessageNotContaining("owner/private")
+          .hasNoCause();
+      server.verify();
+    }
+  }
+
+  @Test
+  void missingConfigurationAndUnreadableKeysHaveSafeMessages() {
+    var unconfigured =
+        new GitHubClient("", "", "https://api.github.com", json, RestClient.builder());
+    assertThatThrownBy(() -> unconfigured.installation("owner/private"))
+        .isInstanceOf(GitHubAccessException.class)
+        .hasMessageContaining("Configure GITHUB_APP_ID and GITHUB_PRIVATE_KEY_PATH")
+        .hasNoCause();
+    Path missing = temp.resolve("private-key-does-not-exist.pem");
+    var invalidKey =
+        new GitHubClient(
+            "1234", missing.toString(), "https://api.github.com", json, RestClient.builder());
+    assertThatThrownBy(() -> invalidKey.installation("owner/private"))
+        .isInstanceOf(GitHubAccessException.class)
+        .hasMessageContaining("Cannot load")
+        .hasMessageContaining("readable PKCS#1 or PKCS#8")
+        .hasMessageNotContaining(missing.toString())
+        .hasNoCause();
   }
 
   private void verifyJwt(String auth, KeyPair pair) {

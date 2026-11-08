@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.daiku.board.TicketService;
 import dev.daiku.cicd.builds.BuildStore;
+import dev.daiku.cicd.github.RepositoryService;
 import dev.daiku.cicd.github.WebhookService;
 import dev.daiku.core.ApplicationException;
 import dev.daiku.core.port.ProjectRepository;
@@ -41,6 +42,7 @@ class WorkspaceIntegrationTest {
   @Autowired TicketService tickets;
   @Autowired BuildStore builds;
   @Autowired WebhookService webhooks;
+  @Autowired RepositoryService repositories;
   @Autowired ObjectMapper json;
 
   @BeforeEach
@@ -442,6 +444,203 @@ class WorkspaceIntegrationTest {
     ingest(p, "completed", "success", "2026-11-04T10:00:00Z", 1);
     ingest(p, "queued", null, "2026-11-04T10:00:00Z", 1);
     assertThat(builds.recent(p.id()).getFirst().getLabel()).isEqualTo("success");
+  }
+
+  @Test
+  void archivesAndRestoresOnlyTheSelectedProjectAndPreservesItsData() throws Exception {
+    var p = connected();
+    var other = projects.createLocal(p.name());
+    long id = tickets.create(p.id(), "Preserved ticket", "Description", "Criteria", "HIGH");
+    ingest(p, "completed", "success", "2026-11-04T10:00:00Z", 1);
+    var session = session();
+    String csrf = (String) session.getAttribute("csrf");
+    mvc.perform(post("/projects/" + p.id() + "/archive").session(session).param("_csrf", csrf))
+        .andExpect(redirectedUrl("/projects/archived"));
+    assertThat(projects.get(p.id()).archived()).isTrue();
+    assertThat(projects.get(other.id()).archived()).isFalse();
+    assertThat(projects.get(p.id()).repositoryId()).isEqualTo(p.repositoryId());
+    assertThat(projects.byRepository(100, 42).id()).isEqualTo(p.id());
+    mvc.perform(get("/")).andExpect(redirectedUrl("/projects/" + other.id()));
+    mvc.perform(get("/projects/" + other.id()))
+        .andExpect(
+            content()
+                .string(
+                    org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString(
+                            "href=\"/projects/" + p.id() + "\""))));
+    mvc.perform(get("/projects/archived").session(session))
+        .andExpect(status().isOk())
+        .andExpect(content().string(org.hamcrest.Matchers.containsString("owner/example")))
+        .andExpect(
+            content()
+                .string(org.hamcrest.Matchers.containsString("/projects/" + p.id() + "/restore")));
+    mvc.perform(get("/projects/" + p.id()))
+        .andExpect(status().isOk())
+        .andExpect(content().string(org.hamcrest.Matchers.containsString("Preserved ticket")))
+        .andExpect(content().string(org.hamcrest.Matchers.containsString("updates are paused")))
+        .andExpect(
+            content()
+                .string(
+                    org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("/js/board.js"))))
+        .andExpect(
+            content()
+                .string(
+                    org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("id=\"new-ticket\""))));
+    mvc.perform(get("/tickets/" + id))
+        .andExpect(status().isOk())
+        .andExpect(content().string(org.hamcrest.Matchers.containsString("disabled")))
+        .andExpect(
+            content()
+                .string(
+                    org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("Save changes"))));
+    assertThat(tickets.history(id)).containsExactly("Ticket created by you");
+    assertThat(builds.recent(p.id())).hasSize(1);
+    mvc.perform(post("/projects/" + p.id() + "/restore").session(session).param("_csrf", csrf))
+        .andExpect(redirectedUrl("/projects/" + p.id()));
+    assertThat(projects.get(p.id()).archived()).isFalse();
+    assertThat(tickets.get(id).description()).isEqualTo("Description");
+    tickets.move(id, 0, TicketStatus.READY);
+    mvc.perform(get("/projects/archived"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(org.hamcrest.Matchers.containsString("No archived projects")));
+  }
+
+  @Test
+  void archivedProjectsRejectTicketMutationsAndManualRefresh() throws Exception {
+    var p = projects.createLocal("Archived");
+    long id = tickets.create(p.id(), "Original", "", "", "MEDIUM");
+    projects.setArchived(p.id(), true);
+    var session = session();
+    String csrf = (String) session.getAttribute("csrf");
+    mvc.perform(
+            post("/projects/" + p.id() + "/tickets")
+                .session(session)
+                .param("_csrf", csrf)
+                .param("title", "New"))
+        .andExpect(status().isConflict());
+    mvc.perform(
+            post("/tickets/" + id)
+                .session(session)
+                .param("_csrf", csrf)
+                .param("version", "0")
+                .param("title", "Changed")
+                .param("priority", "HIGH")
+                .param("status", "DONE"))
+        .andExpect(status().isConflict());
+    mvc.perform(
+            post("/tickets/" + id + "/status")
+                .session(session)
+                .param("_csrf", csrf)
+                .param("version", "0")
+                .param("status", "DONE"))
+        .andExpect(status().isConflict());
+    mvc.perform(
+            post("/tickets/" + id + "/delete")
+                .session(session)
+                .param("_csrf", csrf)
+                .param("version", "0"))
+        .andExpect(status().isConflict());
+    mvc.perform(post("/projects/" + p.id() + "/refresh").session(session).param("_csrf", csrf))
+        .andExpect(status().isConflict());
+    assertThat(tickets.forProject(p.id())).hasSize(1);
+    assertThat(tickets.get(id).title()).isEqualTo("Original");
+    assertThat(tickets.history(id)).hasSize(1);
+  }
+
+  @Test
+  void archiveMigrationPreservesExistingProjectsAndTickets() throws Exception {
+    String url = "jdbc:h2:mem:archive_migration;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+    var configuration = org.flywaydb.core.Flyway.configure().dataSource(url, "sa", "");
+    configuration.target("1").load().migrate();
+    try (var connection = java.sql.DriverManager.getConnection(url, "sa", "");
+        var statement = connection.createStatement()) {
+      statement.executeUpdate("INSERT INTO projects(id,name) VALUES (123,'Existing project')");
+      statement.executeUpdate(
+          "INSERT INTO tickets(project_id,title,description,acceptance_criteria,priority,status)"
+              + " VALUES (123,'Existing ticket','','','MEDIUM','SUGGESTED')");
+      org.flywaydb.core.Flyway.configure().dataSource(url, "sa", "").load().migrate();
+      try (var rows =
+          statement.executeQuery(
+              "SELECT p.archived,t.title FROM projects p JOIN tickets t ON t.project_id=p.id WHERE"
+                  + " p.id=123")) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getBoolean("archived")).isFalse();
+        assertThat(rows.getString("title")).isEqualTo("Existing ticket");
+      }
+    }
+  }
+
+  @Test
+  void archiveAndRestoreRequireCsrfAndRejectUnknownProjects() throws Exception {
+    var p = projects.createLocal("Archive me");
+    var first = session();
+    var second = session();
+    for (String action : new String[] {"archive", "restore"}) {
+      mvc.perform(post("/projects/" + p.id() + "/" + action).session(first))
+          .andExpect(status().isForbidden());
+      mvc.perform(
+              post("/projects/" + p.id() + "/" + action)
+                  .session(second)
+                  .param("_csrf", (String) first.getAttribute("csrf")))
+          .andExpect(status().isForbidden());
+      mvc.perform(
+              post("/projects/999999/" + action)
+                  .session(first)
+                  .param("_csrf", (String) first.getAttribute("csrf")))
+          .andExpect(status().isNotFound());
+    }
+    assertThat(projects.get(p.id()).archived()).isFalse();
+    projects.setArchived(p.id(), true);
+    mvc.perform(get("/")).andExpect(status().isOk());
+  }
+
+  @Test
+  void archivedProjectsIgnoreQueuedWebhooksAndStaleBuildImportsUntilRestored() throws Exception {
+    var p = connected();
+    ingest(p, "in_progress", null, "2026-11-04T09:00:00Z", 1);
+    byte[] payload = payload("completed", "success", "2026-11-04T10:00:00Z", 1);
+    webhooks.receive("before-archive", "workflow_run", sign(payload), payload);
+    projects.setArchived(p.id(), true);
+    assertThat(repositories.sync(p)).isFalse();
+    assertThat(projects.get(p.id()).syncError()).isNull();
+    webhooks.processPending();
+    ingest(p, "completed", "success", "2026-11-04T10:00:00Z", 1);
+    assertThat(builds.recent(p.id()).getFirst().getLabel()).isEqualTo("in_progress");
+    assertThat(db.queryForObject("SELECT state FROM webhook_deliveries", String.class))
+        .isEqualTo("PROCESSED");
+    projects.setArchived(p.id(), false);
+    webhooks.receive("after-restore", "workflow_run", sign(payload), payload);
+    webhooks.processPending();
+    assertThat(builds.recent(p.id()).getFirst().getLabel()).isEqualTo("success");
+  }
+
+  @Test
+  void connectionErrorsShowSafeActionableGuidance() throws Exception {
+    var session = session();
+    var result =
+        mvc.perform(
+                post("/projects/connect")
+                    .session(session)
+                    .param("_csrf", (String) session.getAttribute("csrf"))
+                    .param("repository", "owner/private"))
+            .andExpect(redirectedUrl("/projects/new"))
+            .andExpect(
+                flash()
+                    .attribute(
+                        "notice",
+                        "Configure GITHUB_APP_ID and GITHUB_PRIVATE_KEY_PATH, then restart Daiku."))
+            .andReturn();
+    mvc.perform(get("/projects/new").session(session).flashAttrs(result.getFlashMap()))
+        .andExpect(status().isOk())
+        .andExpect(
+            content()
+                .string(
+                    org.hamcrest.Matchers.containsString(
+                        "Configure GITHUB_APP_ID and GITHUB_PRIVATE_KEY_PATH")));
+    assertThat(projects.all()).isEmpty();
   }
 
   private MockHttpSession session() throws Exception {

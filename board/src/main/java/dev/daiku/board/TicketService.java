@@ -3,6 +3,7 @@ package dev.daiku.board;
 import static dev.daiku.core.ApplicationException.Kind.*;
 
 import dev.daiku.core.ApplicationException;
+import dev.daiku.core.port.ProjectRepository;
 import dev.daiku.domain.ticket.Ticket;
 import dev.daiku.domain.ticket.TicketStatus;
 import java.util.List;
@@ -13,8 +14,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class TicketService {
   private final TicketRepository tickets;
 
-  public TicketService(TicketRepository tickets) {
+  private final ProjectRepository projects;
+
+  public TicketService(TicketRepository tickets, ProjectRepository projects) {
     this.tickets = tickets;
+    this.projects = projects;
+  }
+
+  private void requireActive(long projectId) {
+    if (projects.get(projectId).archived())
+      throw new ApplicationException(CONFLICT, "Restore this project before changing its tickets.");
   }
 
   public List<Ticket> forProject(long id) {
@@ -28,6 +37,7 @@ public class TicketService {
   @Transactional
   public long create(
       long projectId, String title, String description, String criteria, String priority) {
+    requireActive(projectId);
     title = required(title, 200, "Title");
     description = text(description, 20000, "Description");
     criteria = text(criteria, 10000, "Acceptance criteria");
@@ -47,6 +57,7 @@ public class TicketService {
       String priority,
       TicketStatus status) {
     Ticket before = get(id);
+    requireActive(before.projectId());
     title = required(title, 200, "Title");
     description = text(description, 20000, "Description");
     criteria = text(criteria, 10000, "Acceptance criteria");
@@ -83,6 +94,7 @@ public class TicketService {
   @Transactional
   public long delete(long id, long version) {
     Ticket ticket = get(id);
+    requireActive(ticket.projectId());
     if (!tickets.delete(id, version))
       throw new ApplicationException(
           CONFLICT, "This ticket changed in another tab. Reload before deleting.");

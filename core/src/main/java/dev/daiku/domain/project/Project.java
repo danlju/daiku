@@ -10,7 +10,8 @@ public record Project(
     String repository,
     String defaultBranch,
     OffsetDateTime syncedAt,
-    String syncError) {
+    String syncError,
+    boolean archived) {
   public boolean connected() {
     return repositoryId != null;
   }

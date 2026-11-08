@@ -2,8 +2,10 @@ package dev.daiku.web;
 
 import dev.daiku.board.TicketService;
 import dev.daiku.cicd.builds.BuildStore;
+import dev.daiku.cicd.github.GitHubAccessException;
 import dev.daiku.cicd.github.GitHubClient;
 import dev.daiku.cicd.github.RepositoryService;
+import dev.daiku.core.ApplicationException;
 import dev.daiku.core.port.ProjectRepository;
 import dev.daiku.domain.ticket.Ticket;
 import dev.daiku.domain.ticket.TicketStatus;
@@ -35,17 +37,40 @@ public class WorkspaceController {
 
   @ModelAttribute
   public void common(Model model) {
-    model.addAttribute("projects", projects.all());
+    model.addAttribute("projects", projects.all().stream().filter(p -> !p.archived()).toList());
     model.addAttribute("githubConfigured", github.configured());
     model.addAttribute("statuses", TicketStatus.values());
   }
 
   @GetMapping("/")
   public String home(Model model) {
-    var all = projects.all();
+    var all = projects.all().stream().filter(p -> !p.archived()).toList();
     if (!all.isEmpty()) return "redirect:/projects/" + all.getFirst().id();
     model.addAttribute("pageTitle", "Your workspace");
     return "connect";
+  }
+
+  @GetMapping("/projects/archived")
+  public String archived(Model model) {
+    model.addAttribute("pageTitle", "Archived projects");
+    model.addAttribute(
+        "archivedProjects", projects.all().stream().filter(p -> p.archived()).toList());
+    return "archived-projects";
+  }
+
+  @PostMapping("/projects/{id}/archive")
+  public String archive(@PathVariable long id, RedirectAttributes flash) {
+    projects.setArchived(id, true);
+    flash.addFlashAttribute(
+        "notice", "Project archived. You can restore it from Archived projects.");
+    return "redirect:/projects/archived";
+  }
+
+  @PostMapping("/projects/{id}/restore")
+  public String restore(@PathVariable long id, RedirectAttributes flash) {
+    projects.setArchived(id, false);
+    flash.addFlashAttribute("notice", "Project restored.");
+    return "redirect:/projects/" + id;
   }
 
   @GetMapping("/projects/new")
@@ -64,12 +89,19 @@ public class WorkspaceController {
   public String connectRepo(@RequestParam String repository, RedirectAttributes flash) {
     try {
       var project = repositories.connect(repository);
+      if (project.archived()) {
+        flash.addFlashAttribute(
+            "notice", "This repository belongs to an archived project. Restore it to resume work.");
+        return "redirect:/projects/" + project.id();
+      }
       if (!repositories.sync(project))
         flash.addFlashAttribute(
             "notice", "Repository connected. Build refresh failed; you can retry from the board.");
       return "redirect:/projects/" + project.id();
     } catch (IllegalArgumentException e) {
       flash.addFlashAttribute("notice", "Enter a valid repository such as owner/repository.");
+    } catch (GitHubAccessException e) {
+      flash.addFlashAttribute("notice", e.getMessage());
     } catch (IllegalStateException e) {
       flash.addFlashAttribute(
           "notice",
@@ -77,6 +109,40 @@ public class WorkspaceController {
               + " App installation.");
     }
     return "redirect:/projects/new";
+  }
+
+  @GetMapping("/projects/{id}/connect")
+  public String connectProject(@PathVariable long id, Model model) {
+    var project = projects.get(id);
+    if (project.archived() || project.connected()) return "redirect:/projects/" + id;
+    model.addAttribute("project", project);
+    model.addAttribute("pageTitle", "Connect GitHub · " + project.name());
+    return "connect-project";
+  }
+
+  @PostMapping("/projects/{id}/connect")
+  public String connectProjectRepo(
+      @PathVariable long id, @RequestParam String repository, RedirectAttributes flash) {
+    try {
+      var project = repositories.connect(id, repository);
+      flash.addFlashAttribute(
+          "notice",
+          repositories.sync(project)
+              ? "GitHub repository connected. Your project and tickets are preserved."
+              : "Repository connected. Build refresh failed; you can retry from the board.");
+      return "redirect:/projects/" + id;
+    } catch (ApplicationException e) {
+      if (e.kind() != ApplicationException.Kind.CONFLICT) throw e;
+      flash.addFlashAttribute("notice", e.getMessage());
+      return "redirect:/projects/" + id;
+    } catch (IllegalArgumentException e) {
+      flash.addFlashAttribute("notice", "Enter a valid repository such as owner/repository.");
+    } catch (GitHubAccessException e) {
+      flash.addFlashAttribute("notice", e.getMessage());
+    } catch (IllegalStateException e) {
+      flash.addFlashAttribute("notice", "Could not connect the repository. Try again later.");
+    }
+    return "redirect:/projects/" + id + "/connect";
   }
 
   @GetMapping("/projects/{id}")
@@ -97,7 +163,11 @@ public class WorkspaceController {
 
   @PostMapping("/projects/{id}/refresh")
   public String refresh(@PathVariable long id, RedirectAttributes flash) {
-    boolean ok = repositories.sync(projects.get(id));
+    var project = projects.get(id);
+    if (project.archived())
+      throw new ApplicationException(
+          ApplicationException.Kind.CONFLICT, "Restore this project before refreshing builds.");
+    boolean ok = repositories.sync(project);
     flash.addFlashAttribute(
         "notice",
         ok

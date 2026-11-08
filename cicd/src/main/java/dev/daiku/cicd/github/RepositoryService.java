@@ -1,6 +1,7 @@
 package dev.daiku.cicd.github;
 
 import dev.daiku.cicd.builds.BuildStore;
+import dev.daiku.core.ApplicationException;
 import dev.daiku.core.port.ProjectRepository;
 import dev.daiku.domain.project.Project;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -18,7 +19,25 @@ public class RepositoryService {
     this.builds = builds;
   }
 
-  public Project connect(String input) {
+  private record RepositoryDetails(
+      long id, long installationId, String name, String fullName, String branch) {}
+
+  public Project connect(long projectId, String input) {
+    var project = projects.get(projectId);
+    if (project.archived())
+      throw new ApplicationException(
+          ApplicationException.Kind.CONFLICT,
+          "Restore this project before connecting a repository.");
+    if (project.connected())
+      throw new ApplicationException(
+          ApplicationException.Kind.CONFLICT,
+          "This project is already connected to a repository. Reload its board.");
+    var details = discover(input);
+    return projects.attachRepository(
+        projectId, details.id(), details.installationId(), details.fullName(), details.branch());
+  }
+
+  private RepositoryDetails discover(String input) {
     String repo =
         input
             .strip()
@@ -32,15 +51,30 @@ public class RepositoryService {
     long installation = github.installation(repo).path("id").asLong();
     var metadata = github.repository(repo, github.token(installation));
     long repoId = metadata.path("id").asLong();
+    if (installation <= 0
+        || repoId <= 0
+        || metadata.path("full_name").asText().isBlank()
+        || metadata.path("name").asText().isBlank()
+        || metadata.path("default_branch").asText().isBlank())
+      throw new GitHubAccessException(
+          "GitHub returned incomplete repository details. Retry connecting later.");
+    return new RepositoryDetails(
+        repoId,
+        installation,
+        metadata.path("name").asText(),
+        metadata.path("full_name").asText(),
+        metadata.path("default_branch").asText());
+  }
+
+  public Project connect(String input) {
+    var details = discover(input);
+    long repoId = details.id();
+    long installation = details.installationId();
     Project existing = projects.byRepository(repoId, installation);
     if (existing != null) return existing;
     try {
       return projects.connect(
-          repoId,
-          installation,
-          metadata.path("name").asText(),
-          metadata.path("full_name").asText(),
-          metadata.path("default_branch").asText());
+          repoId, installation, details.name(), details.fullName(), details.branch());
     } catch (org.springframework.dao.DuplicateKeyException e) {
       existing = projects.byRepository(repoId, installation);
       if (existing != null) return existing;
@@ -50,6 +84,8 @@ public class RepositoryService {
   }
 
   public boolean sync(Project project) {
+    project = projects.get(project.id());
+    if (project.archived()) return false;
     if (!project.connected()) return true;
     try {
       var runs = github.runs(project.repository(), github.token(project.installationId()));
@@ -66,6 +102,10 @@ public class RepositoryService {
       fixedDelayString = "${daiku.github.poll-ms}",
       initialDelayString = "${daiku.github.poll-ms}")
   public void poll() {
-    if (github.configured()) projects.all().stream().filter(Project::connected).forEach(this::sync);
+    if (github.configured())
+      projects.all().stream()
+          .filter(p -> !p.archived())
+          .filter(Project::connected)
+          .forEach(this::sync);
   }
 }
