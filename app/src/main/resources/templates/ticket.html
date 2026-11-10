@@ -20,5 +20,46 @@
   </form>
   <div th:unless="${project.archived}" class="ticket-delete"><a class="button danger" th:href="@{/tickets/{id}/delete(id=${ticket.id})}">Delete ticket</a></div>
   </section>
-  <aside class="panel activity"><div class="eyebrow">THE PAPER TRAIL</div><h2>Activity</h2><ol><li th:each="event : ${history}" th:text="${event}"></li></ol></aside>
+  <aside class="ticket-sidebar">
+  <section class="panel development" aria-labelledby="development-heading"><div class="eyebrow">CODE &amp; DELIVERY</div><h2 id="development-heading">Development</h2>
+    <div th:unless="${project.connected()}"><p>Connect this project to GitHub to link branches and pull requests.</p><a th:unless="${project.archived}" th:href="@{/projects/{id}/connect(id=${project.id})}">Connect GitHub →</a></div>
+    <div th:if="${project.connected()}">
+      <p th:if="${!ticket.branch.isEmpty()}">Branch: <a th:href="${branchUrl}" th:text="${ticket.branch}" target="_blank" rel="noopener noreferrer"></a></p>
+      <div th:if="${ticket.pullRequestNumber != null}">
+        <a th:href="${'https://github.com/' + project.repository + '/pull/' + ticket.pullRequestNumber}" th:text="${'Pull request #' + ticket.pullRequestNumber}" target="_blank" rel="noopener noreferrer"></a>
+        <strong class="pr-state" th:text="${pullRequest != null ? pullRequest.label : 'Not refreshed'}"></strong>
+        <p th:if="${pullRequest != null and !pullRequest.title.isEmpty()}" th:text="${pullRequest.title}"></p>
+        <p class="field-help" th:if="${pullRequest != null and !pullRequest.headBranch.isEmpty()}" th:text="${'PR branch: ' + pullRequest.headBranch}"></p>
+        <p class="field-help" th:if="${pullRequest != null and pullRequest.syncError != null}">PR status could not be refreshed. Any displayed details are the last known state.</p>
+        <p class="sync-error" role="alert" th:if="${pullRequest != null and pullRequest.syncError != null}" th:text="${pullRequest.syncError}"></p>
+        <p class="field-help" th:if="${pullRequest != null and pullRequest.syncedAt != null}" th:text="${'PR last refreshed ' + #temporals.format(pullRequest.syncedAt, 'MMM d, HH:mm XXX')}"></p>
+      </div>
+      <form th:action="@{/tickets/{id}/development(id=${ticket.id})}" method="post">
+        <input type="hidden" name="_csrf" th:value="${csrf}"><input type="hidden" name="version" th:value="${ticket.version}">
+        <fieldset class="ticket-fields" th:disabled="${project.archived}">
+          <label for="branch">Branch name</label><input id="branch" name="branch" maxlength="255" placeholder="feature/ticket-123" th:value="${ticket.branch}">
+          <label for="pullRequest">Pull request number or URL</label><input id="pullRequest" name="pullRequest" maxlength="300" placeholder="#123 or GitHub PR URL" th:value="${ticket.pullRequestNumber}">
+          <p class="field-help">Use a PR from this project’s repository. Leave a field empty to remove its link.</p>
+          <button th:unless="${project.archived}" class="button secondary small" type="submit">Save development links</button>
+        </fieldset>
+      </form>
+      <h3>Related builds</h3>
+      <p class="field-help" th:if="${ticket.pullRequestNumber != null}">Runs matching the last refreshed PR head or merge commit. Refresh after pushing new commits.</p>
+      <p class="field-help" th:if="${ticket.pullRequestNumber == null and !ticket.branch.isEmpty()}">Recent imported runs for this branch in the project repository. Each run shows the commit it built.</p>
+      <p th:if="${relatedBuilds.isEmpty()}">No matching workflow runs imported.</p>
+      <div class="build-list" th:unless="${relatedBuilds.isEmpty()}">
+        <a class="build-row" th:each="build : ${relatedBuilds}" th:href="${build.htmlUrl}" target="_blank" rel="noopener noreferrer">
+          <div class="build-info"><strong th:text="${build.name + ' #' + build.runNumber}"></strong><small><code th:text="${build.shortSha}"></code></small></div>
+          <span class="build-status" th:classappend="${build.tone}" th:text="${build.label}"></span>
+        </a>
+      </div>
+      <p class="sync-error" role="alert" th:if="${project.syncError}" th:text="${project.syncError}"></p>
+      <p class="field-help" th:if="${project.syncedAt}" th:text="${'Builds last refreshed ' + #temporals.format(project.syncedAt, 'MMM d, HH:mm XXX')}"></p>
+      <form th:if="${!project.archived and (!ticket.branch.isEmpty() or ticket.pullRequestNumber != null)}" th:action="@{/tickets/{id}/development/refresh(id=${ticket.id})}" method="post">
+        <input type="hidden" name="_csrf" th:value="${csrf}"><button class="button secondary small" type="submit">Refresh development status</button>
+      </form>
+    </div>
+  </section>
+  <section class="panel activity"><div class="eyebrow">THE PAPER TRAIL</div><h2>Activity</h2><ol><li th:each="event : ${history}" th:text="${event}"></li></ol></section>
+  </aside>
 </div></div></main></div></body></html>

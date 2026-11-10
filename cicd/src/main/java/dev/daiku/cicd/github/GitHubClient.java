@@ -2,6 +2,7 @@ package dev.daiku.cicd.github;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @Component
 public class GitHubClient {
@@ -82,7 +84,36 @@ public class GitHubClient {
         .path("workflow_runs");
   }
 
+  public JsonNode runsForCommit(String repo, String token, String sha) {
+    return filteredRuns(repo, token, "head_sha", sha);
+  }
+
+  public JsonNode runsForBranch(String repo, String token, String branch) {
+    return filteredRuns(repo, token, "branch", branch);
+  }
+
+  private JsonNode filteredRuns(String repo, String token, String parameter, String value) {
+    var uri =
+        UriComponentsBuilder.fromUriString(apiUrl)
+            .path("/repos/" + repo + "/actions/runs")
+            .queryParam("per_page", 30)
+            .queryParam(parameter, "{filter}")
+            .encode()
+            .buildAndExpand(value)
+            .toUri();
+    return request("GET", uri, token, null, Operation.RUNS).path("workflow_runs");
+  }
+
+  public JsonNode pullRequest(String repo, long number, String token) {
+    return request(
+        "GET", "/repos/" + repo + "/pulls/" + number, token, null, Operation.PULL_REQUEST);
+  }
+
   private enum Operation {
+    PULL_REQUEST(
+        "read the linked pull request",
+        "Check the PR number and the installation's Pull requests read permission. Approve any"
+            + " pending permission updates."),
     INSTALLATION(
         "find the repository's App installation",
         "Check the owner/repository spelling and install this GitHub App on the account that owns"
@@ -135,10 +166,14 @@ public class GitHubClient {
 
   private JsonNode request(
       String method, String path, String token, String body, Operation operation) {
+    return request(method, URI.create(apiUrl + path), token, body, operation);
+  }
+
+  private JsonNode request(String method, URI uri, String token, String body, Operation operation) {
     try {
       var builder =
           http.method(org.springframework.http.HttpMethod.valueOf(method))
-              .uri(path)
+              .uri(uri)
               .header("Authorization", "Bearer " + token)
               .header("Accept", "application/vnd.github+json")
               .header("X-GitHub-Api-Version", "2022-11-28")

@@ -119,6 +119,7 @@ class GitHubClientTest {
       {"token", "403", "/app/installations/42/access_tokens", "not suspended"},
       {"repository", "404", "/repos/owner/private", "Metadata read permission"},
       {"runs", "403", "/repos/owner/private/actions/runs?per_page=30", "Actions read permission"},
+      {"pullRequest", "403", "/repos/owner/private/pulls/7", "Pull requests read permission"},
       {"repository", "429", "/repos/owner/private", "rate limited"},
       {"repository", "503", "/repos/owner/private", "temporarily unavailable"}
     };
@@ -138,6 +139,7 @@ class GitHubClientTest {
                   case "installation" -> client.installation("owner/private");
                   case "token" -> client.token(42);
                   case "repository" -> client.repository("owner/private", "secret-token");
+                  case "pullRequest" -> client.pullRequest("owner/private", 7, "secret-token");
                   case "runs" -> client.runs("owner/private", "secret-token");
                   default -> throw new AssertionError("Unknown scenario");
                 }
@@ -198,6 +200,29 @@ class GitHubClientTest {
         .hasMessageContaining("readable PKCS#1 or PKCS#8")
         .hasMessageNotContaining(missing.toString())
         .hasNoCause();
+  }
+
+  @Test
+  void filtersWorkflowRunsAndEncodesBranchNamesWithoutQueryInjection() {
+    var builder = RestClient.builder();
+    var server = MockRestServiceServer.bindTo(builder).build();
+    server
+        .expect(
+            requestTo(
+                "https://api.github.com/repos/owner/example/actions/runs?per_page=30&branch=feature%2Ffix%2Bfoo%26bar"))
+        .andExpect(header("Authorization", "Bearer test-token"))
+        .andRespond(withSuccess("{\"workflow_runs\":[]}", MediaType.APPLICATION_JSON));
+    server
+        .expect(
+            requestTo(
+                "https://api.github.com/repos/owner/example/actions/runs?per_page=30&head_sha="
+                    + "a".repeat(40)))
+        .andRespond(withSuccess("{\"workflow_runs\":[]}", MediaType.APPLICATION_JSON));
+    var client = new GitHubClient("", "", "https://api.github.com", json, builder);
+    assertThat(client.runsForBranch("owner/example", "test-token", "feature/fix+foo&bar"))
+        .isEmpty();
+    assertThat(client.runsForCommit("owner/example", "test-token", "a".repeat(40))).isEmpty();
+    server.verify();
   }
 
   private void verifyJwt(String auth, KeyPair pair) {

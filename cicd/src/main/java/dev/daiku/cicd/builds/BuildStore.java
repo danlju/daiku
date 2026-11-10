@@ -3,6 +3,8 @@ package dev.daiku.cicd.builds;
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.daiku.domain.build.BuildRun;
 import dev.daiku.domain.project.Project;
+import dev.daiku.domain.project.PullRequest;
+import dev.daiku.domain.ticket.Ticket;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -18,8 +20,33 @@ public class BuildStore {
   }
 
   public List<BuildRun> recent(long projectId) {
-    return db.query(
+    return query(
         "SELECT * FROM build_runs WHERE project_id=? ORDER BY updated_at DESC, id DESC LIMIT 15",
+        projectId);
+  }
+
+  public List<BuildRun> related(Project project, Ticket ticket, PullRequest pullRequest) {
+    if (ticket.pullRequestNumber() != null) {
+      if (pullRequest == null || pullRequest.headSha().isEmpty()) return List.of();
+      return query(
+          "SELECT * FROM build_runs WHERE project_id=? AND (commit_sha=? OR (commit_sha=? AND"
+              + " commit_sha<>'')) ORDER BY updated_at DESC,id DESC LIMIT 15",
+          project.id(),
+          pullRequest.headSha(),
+          pullRequest.mergeSha());
+    }
+    if (ticket.branch().isEmpty() || !project.connected()) return List.of();
+    return query(
+        "SELECT * FROM build_runs WHERE project_id=? AND branch=? AND head_repository_id=? ORDER BY"
+            + " updated_at DESC,id DESC LIMIT 15",
+        project.id(),
+        ticket.branch(),
+        project.repositoryId());
+  }
+
+  private List<BuildRun> query(String sql, Object... args) {
+    return db.query(
+        sql,
         (rs, n) ->
             new BuildRun(
                 rs.getLong("id"),
@@ -31,7 +58,7 @@ public class BuildStore {
                 rs.getString("html_url"),
                 rs.getLong("run_number"),
                 rs.getObject("updated_at", OffsetDateTime.class)),
-        projectId);
+        args);
   }
 
   @Transactional
@@ -46,6 +73,17 @@ public class BuildStore {
         db.queryForObject(
             "SELECT archived FROM projects WHERE id=? FOR UPDATE", Boolean.class, project.id());
     if (archived) return;
+    Long headRepositoryId =
+        run.path("head_repository").path("id").asLong() > 0
+            ? run.path("head_repository").path("id").asLong()
+            : null;
+    if (headRepositoryId != null)
+      db.update(
+          "UPDATE build_runs SET head_repository_id=? WHERE id=? AND project_id=? AND"
+              + " head_repository_id IS NULL",
+          headRepositoryId,
+          id,
+          project.id());
     var existing = db.queryForList("SELECT run_attempt, status FROM build_runs WHERE id=?", id);
     if (!existing.isEmpty()) {
       var row = existing.getFirst();
@@ -65,8 +103,8 @@ public class BuildStore {
     if (existing.isEmpty()) {
       db.update(
           "INSERT INTO"
-              + " build_runs(id,project_id,name,branch,commit_sha,status,conclusion,html_url,run_number,run_attempt,updated_at)"
-              + " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              + " build_runs(id,project_id,name,branch,commit_sha,status,conclusion,html_url,run_number,run_attempt,updated_at,head_repository_id)"
+              + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
           id,
           project.id(),
           run.path("name").asText("Workflow"),
@@ -77,11 +115,12 @@ public class BuildStore {
           url,
           run.path("run_number").asLong(),
           attempt,
-          updated);
+          updated,
+          headRepositoryId);
     } else {
       db.update(
           "UPDATE build_runs SET"
-              + " name=?,branch=?,commit_sha=?,status=?,conclusion=?,html_url=?,run_attempt=?,updated_at=?"
+              + " name=?,branch=?,commit_sha=?,status=?,conclusion=?,html_url=?,run_attempt=?,updated_at=?,head_repository_id=COALESCE(?,head_repository_id)"
               + " WHERE id=? AND project_id=?",
           run.path("name").asText("Workflow"),
           run.path("head_branch").asText(""),
@@ -91,6 +130,7 @@ public class BuildStore {
           url,
           attempt,
           updated,
+          headRepositoryId,
           id,
           project.id());
     }

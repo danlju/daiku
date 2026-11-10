@@ -84,6 +84,7 @@ class ProjectConnectionIntegrationTest {
     db.update("DELETE FROM ticket_events");
     db.update("DELETE FROM tickets");
     db.update("DELETE FROM build_runs");
+    db.update("DELETE FROM pull_requests");
     db.update("DELETE FROM projects");
   }
 

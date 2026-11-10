@@ -8,4 +8,6 @@ public record Ticket(
     String acceptanceCriteria,
     String priority,
     TicketStatus status,
-    long version) {}
+    long version,
+    String branch,
+    Long pullRequestNumber) {}

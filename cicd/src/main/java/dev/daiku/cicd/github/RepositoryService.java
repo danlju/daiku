@@ -4,6 +4,7 @@ import dev.daiku.cicd.builds.BuildStore;
 import dev.daiku.core.ApplicationException;
 import dev.daiku.core.port.ProjectRepository;
 import dev.daiku.domain.project.Project;
+import dev.daiku.domain.project.PullRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -90,6 +91,30 @@ public class RepositoryService {
     try {
       var runs = github.runs(project.repository(), github.token(project.installationId()));
       for (var run : runs) builds.ingest(project, run);
+      projects.synced(project.id());
+      return true;
+    } catch (RuntimeException e) {
+      projects.failed(project.id());
+      return false;
+    }
+  }
+
+  public boolean syncTicket(Project project, String branch, PullRequest pullRequest) {
+    project = projects.get(project.id());
+    if (!project.connected() || project.archived()) return false;
+    try {
+      String token = github.token(project.installationId());
+      if (pullRequest != null) {
+        for (var run : github.runsForCommit(project.repository(), token, pullRequest.headSha()))
+          builds.ingest(project, run);
+        if (!pullRequest.mergeSha().isEmpty()
+            && !pullRequest.mergeSha().equals(pullRequest.headSha()))
+          for (var run : github.runsForCommit(project.repository(), token, pullRequest.mergeSha()))
+            builds.ingest(project, run);
+      } else if (!branch.isEmpty()) {
+        for (var run : github.runsForBranch(project.repository(), token, branch))
+          builds.ingest(project, run);
+      }
       projects.synced(project.id());
       return true;
     } catch (RuntimeException e) {

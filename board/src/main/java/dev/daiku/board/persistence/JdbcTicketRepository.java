@@ -4,6 +4,7 @@ import static dev.daiku.core.ApplicationException.Kind.NOT_FOUND;
 
 import dev.daiku.board.TicketRepository;
 import dev.daiku.core.ApplicationException;
+import dev.daiku.core.port.TicketLinks;
 import dev.daiku.domain.ticket.Ticket;
 import dev.daiku.domain.ticket.TicketStatus;
 import java.util.List;
@@ -12,7 +13,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public class JdbcTicketRepository implements TicketRepository {
+public class JdbcTicketRepository implements TicketRepository, TicketLinks {
   private final JdbcTemplate db;
   private final RowMapper<Ticket> mapper =
       (rs, n) ->
@@ -24,7 +25,9 @@ public class JdbcTicketRepository implements TicketRepository {
               rs.getString("acceptance_criteria"),
               rs.getString("priority"),
               TicketStatus.valueOf(rs.getString("status")),
-              rs.getLong("version"));
+              rs.getLong("version"),
+              rs.getString("branch"),
+              rs.getObject("pull_request_number", Long.class));
 
   public JdbcTicketRepository(JdbcTemplate db) {
     this.db = db;
@@ -34,6 +37,15 @@ public class JdbcTicketRepository implements TicketRepository {
   public List<Ticket> forProject(long id) {
     return db.query(
         "SELECT * FROM tickets WHERE project_id=? ORDER BY created_at DESC, id DESC", mapper, id);
+  }
+
+  @Override
+  public List<Long> pullRequestsForProject(long projectId) {
+    return db.queryForList(
+        "SELECT DISTINCT pull_request_number FROM tickets WHERE project_id=? AND"
+            + " pull_request_number IS NOT NULL ORDER BY pull_request_number",
+        Long.class,
+        projectId);
   }
 
   @Override
@@ -71,13 +83,15 @@ public class JdbcTicketRepository implements TicketRepository {
     int changed =
         db.update(
             "UPDATE tickets SET"
-                + " title=?,description=?,acceptance_criteria=?,priority=?,status=?,version=version+1,updated_at=CURRENT_TIMESTAMP"
+                + " title=?,description=?,acceptance_criteria=?,priority=?,status=?,branch=?,pull_request_number=?,version=version+1,updated_at=CURRENT_TIMESTAMP"
                 + " WHERE id=? AND version=?",
             ticket.title(),
             ticket.description(),
             ticket.acceptanceCriteria(),
             ticket.priority(),
             ticket.status().name(),
+            ticket.branch(),
+            ticket.pullRequestNumber(),
             ticket.id(),
             ticket.version());
     return changed != 0;

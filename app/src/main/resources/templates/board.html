@@ -27,6 +27,7 @@
         <a class="ticket-link" th:href="@{/tickets/{id}(id=${ticket.id})}" draggable="false">
         <div class="ticket-top"><span th:text="${'DK-' + ticket.id}"></span><span class="priority" th:classappend="${ticket.priority.toLowerCase()}" th:text="${ticket.priority}"></span></div>
         <h4 th:text="${ticket.title}"></h4><p th:if="${!ticket.description.isEmpty()}" th:text="${ticket.description}"></p>
+        <p class="ticket-development" th:if="${!ticket.branch.isEmpty() or ticket.pullRequestNumber != null}"><span th:if="${!ticket.branch.isEmpty()}" th:text="${ticket.branch}"></span> <span th:if="${ticket.pullRequestNumber != null}" th:text="${'#' + ticket.pullRequestNumber}"></span></p>
         <div class="ticket-footer"><span class="avatar">Y</span> You <span class="ticket-arrow">↗</span></div>
         </a>
         <select class="ticket-move" hidden th:attr="aria-label=${'Move DK-' + ticket.id + ' to'}">

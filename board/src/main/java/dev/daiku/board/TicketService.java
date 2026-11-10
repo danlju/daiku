@@ -66,7 +66,16 @@ public class TicketService {
     boolean changed =
         tickets.update(
             new Ticket(
-                id, before.projectId(), title, description, criteria, priority, status, version));
+                id,
+                before.projectId(),
+                title,
+                description,
+                criteria,
+                priority,
+                status,
+                version,
+                before.branch(),
+                before.pullRequestNumber()));
     if (!changed)
       throw new ApplicationException(
           CONFLICT, "This ticket changed in another tab. Reload before saving.");
@@ -75,6 +84,72 @@ public class TicketService {
         before.status() == status
             ? "Ticket updated by you"
             : "Moved from " + before.status().getLabel() + " to " + status.getLabel() + " by you");
+  }
+
+  @Transactional
+  public void linkDevelopment(long id, long version, String branch, String pullRequest) {
+    var before = get(id);
+    requireActive(before.projectId());
+    var project = projects.get(before.projectId());
+    if (!project.connected())
+      throw new ApplicationException(
+          CONFLICT, "Connect this project to GitHub before linking development work.");
+    branch = text(branch, 255, "Branch");
+    if (!branch.isEmpty()) {
+      boolean invalid =
+          branch.equals("@")
+              || branch.startsWith("-")
+              || branch.startsWith("/")
+              || branch.endsWith("/")
+              || branch.endsWith(".")
+              || branch.contains("..")
+              || branch.contains("@{")
+              || branch.contains("//")
+              || branch.chars().anyMatch(c -> c <= 32 || c == 127 || "~^:?*[\\".indexOf(c) >= 0);
+      for (String part : branch.split("/"))
+        invalid |= part.startsWith(".") || part.endsWith(".lock");
+      if (invalid)
+        throw new ApplicationException(
+            INVALID_INPUT, "Enter a valid Git branch name, such as feature/ticket-123.");
+    }
+    String input = text(pullRequest, 300, "Pull request");
+    Long number = null;
+    if (!input.isEmpty()) {
+      String prefix = "https://github.com/" + project.repository() + "/pull/";
+      if (input.regionMatches(true, 0, prefix, 0, prefix.length())) {
+        input = input.substring(prefix.length()).replaceFirst("/$", "");
+      } else if (input.startsWith("#")) {
+        input = input.substring(1);
+      }
+      try {
+        if (!input.matches("[1-9][0-9]*")) throw new NumberFormatException();
+        number = Long.valueOf(input);
+      } catch (NumberFormatException e) {
+        throw new ApplicationException(
+            INVALID_INPUT,
+            "Enter a positive PR number or a pull request URL from this project's repository.");
+      }
+    }
+    if (!tickets.update(
+        new Ticket(
+            id,
+            before.projectId(),
+            before.title(),
+            before.description(),
+            before.acceptanceCriteria(),
+            before.priority(),
+            before.status(),
+            version,
+            branch,
+            number)))
+      throw new ApplicationException(
+          CONFLICT, "This ticket changed in another tab. Reload before saving development links.");
+    tickets.event(
+        id,
+        "Development links updated by you: branch "
+            + (branch.isEmpty() ? "none" : branch)
+            + "; PR "
+            + (number == null ? "none" : "#" + number));
   }
 
   @Transactional

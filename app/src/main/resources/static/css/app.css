@@ -21,3 +21,10 @@
 .project-actions, .archived-project { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .archived-project { justify-content: space-between; margin-top: 16px; }
 .ticket-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.ticket-sidebar { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.development { overflow-wrap: anywhere; }
+.development h3 { margin-top: 24px; }
+.development form { margin-top: 16px; }
+.pr-state { display: inline-block; margin-left: 8px; }
+.ticket-development { overflow-wrap: anywhere; }

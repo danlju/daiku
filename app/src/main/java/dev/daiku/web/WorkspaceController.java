@@ -4,15 +4,19 @@ import dev.daiku.board.TicketService;
 import dev.daiku.cicd.builds.BuildStore;
 import dev.daiku.cicd.github.GitHubAccessException;
 import dev.daiku.cicd.github.GitHubClient;
+import dev.daiku.cicd.github.PullRequestService;
+import dev.daiku.cicd.github.PullRequestStore;
 import dev.daiku.cicd.github.RepositoryService;
 import dev.daiku.core.ApplicationException;
 import dev.daiku.core.port.ProjectRepository;
 import dev.daiku.domain.ticket.Ticket;
 import dev.daiku.domain.ticket.TicketStatus;
+import java.nio.charset.StandardCharsets;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+import org.springframework.web.util.UriUtils;
 
 @Controller
 public class WorkspaceController {
@@ -21,18 +25,24 @@ public class WorkspaceController {
   private final BuildStore builds;
   private final GitHubClient github;
   private final RepositoryService repositories;
+  private final PullRequestService pullRequests;
+  private final PullRequestStore pullRequestStore;
 
   public WorkspaceController(
       ProjectRepository projects,
       TicketService tickets,
       BuildStore builds,
       GitHubClient github,
-      RepositoryService repositories) {
+      RepositoryService repositories,
+      PullRequestService pullRequests,
+      PullRequestStore pullRequestStore) {
     this.projects = projects;
     this.tickets = tickets;
     this.builds = builds;
     this.github = github;
     this.repositories = repositories;
+    this.pullRequests = pullRequests;
+    this.pullRequestStore = pullRequestStore;
   }
 
   @ModelAttribute
@@ -192,10 +202,72 @@ public class WorkspaceController {
   public String ticket(@PathVariable long id, Model model) {
     var ticket = tickets.get(id);
     model.addAttribute("ticket", ticket);
-    model.addAttribute("project", projects.get(ticket.projectId()));
+    var project = projects.get(ticket.projectId());
+    model.addAttribute("project", project);
+    var pr =
+        ticket.pullRequestNumber() == null
+            ? null
+            : pullRequestStore.get(project.id(), ticket.pullRequestNumber());
+    model.addAttribute("pullRequest", pr);
+    model.addAttribute("relatedBuilds", builds.related(project, ticket, pr));
+    model.addAttribute(
+        "branchUrl",
+        project.connected() && !ticket.branch().isEmpty()
+            ? "https://github.com/"
+                + project.repository()
+                + "/tree/"
+                + UriUtils.encodePathSegment(ticket.branch(), StandardCharsets.UTF_8)
+            : null);
     model.addAttribute("pageTitle", ticket.title());
     model.addAttribute("history", tickets.history(id));
     return "ticket";
+  }
+
+  @PostMapping("/tickets/{id}/development")
+  public String linkDevelopment(
+      @PathVariable long id,
+      @RequestParam long version,
+      @RequestParam(defaultValue = "") String branch,
+      @RequestParam(defaultValue = "") String pullRequest,
+      RedirectAttributes flash) {
+    tickets.linkDevelopment(id, version, branch, pullRequest);
+    var ticket = tickets.get(id);
+    if (ticket.branch().isEmpty() && ticket.pullRequestNumber() == null)
+      flash.addFlashAttribute("notice", "Development links cleared.");
+    else
+      flash.addFlashAttribute(
+          "notice",
+          refreshDevelopment(ticket)
+              ? "Development links saved and GitHub status refreshed."
+              : "Development links saved. Some GitHub status could not be refreshed. Check the"
+                  + " details below and retry.");
+    return "redirect:/tickets/" + id;
+  }
+
+  @PostMapping("/tickets/{id}/development/refresh")
+  public String refreshDevelopment(@PathVariable long id, RedirectAttributes flash) {
+    var ticket = tickets.get(id);
+    var project = projects.get(ticket.projectId());
+    if (project.archived() || !project.connected())
+      throw new ApplicationException(
+          ApplicationException.Kind.CONFLICT,
+          "Restore and connect this project before refreshing development status.");
+    if (ticket.branch().isEmpty() && ticket.pullRequestNumber() == null)
+      throw new ApplicationException(
+          ApplicationException.Kind.INVALID_INPUT, "Link a branch or pull request first.");
+    flash.addFlashAttribute(
+        "notice",
+        refreshDevelopment(ticket)
+            ? "Development status refreshed from GitHub."
+            : "Some GitHub status could not be refreshed. Check the details below and retry.");
+    return "redirect:/tickets/" + id;
+  }
+
+  private boolean refreshDevelopment(Ticket ticket) {
+    var project = projects.get(ticket.projectId());
+    if (ticket.pullRequestNumber() != null)
+      return pullRequests.refresh(project, ticket.pullRequestNumber());
+    return repositories.syncTicket(project, ticket.branch(), null);
   }
 
   @GetMapping("/tickets/{id}/delete")

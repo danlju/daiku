@@ -38,7 +38,7 @@ The `noop` lock option is only for using this read-only cache. Spring Boot 3.5.3
 ## Connect GitHub
 
 1. Create a GitHub App in GitHub's developer settings. For this increment, disable user authorization during installation; no OAuth callback is needed.
-2. Set repository permissions: **Metadata: read** (implicit), **Contents: read**, and **Actions: read**. No write permissions are needed.
+2. Set repository permissions: **Metadata: read** (implicit), **Contents: read**, **Actions: read**, and **Pull requests: read** (for linked PR status). No write permissions are needed.
 3. Install the App on the repositories you want to connect. Download its RSA private key and store it outside the repository. Both GitHub's PKCS#1 PEM and PKCS#8 PEM formats are supported.
 4. Export the following variables and restart Daiku. The application does not automatically load `.env` files.
 
@@ -62,6 +62,14 @@ Builds can be refreshed manually and are polled every five minutes. The UI shows
 Polling works without a webhook. To receive live updates, configure the GitHub App webhook URL as `https://your-webhook-host/webhooks/github`, with the same secret as `GITHUB_WEBHOOK_SECRET`, and subscribe to **Workflow run** events. Configure your HTTPS tunnel or proxy to forward **only `/webhooks/github`** to localhost:8080; keep the unauthenticated UI private. GitHub can then reach the webhook without exposing the rest of the application.
 
 Payload signatures are checked against the exact request bytes. Valid workflow deliveries are persisted before acknowledging with HTTP 202. Delivery IDs are deduplicated. A background job processes them every five seconds with up to five retries; successful delivery bodies are cleared, and build updates ignore stale timestamps and older rerun attempts. Events for unconnected installations are ignored. Polling reconciles recent build state when a webhook was missed. Inspect failed deliveries with `SELECT delivery_id, attempts FROM webhook_deliveries WHERE state='FAILED'`; after fixing the cause, a delivery can be requeued by setting its state to `PENDING`, attempts to `0`, and next_attempt_at to `CURRENT_TIMESTAMP`.
+
+## Ticket development links
+
+On a connected project's ticket page, use **Development** to link one branch and/or one pull request. Enter a branch name such as `feature/ticket-123` and a PR number (`123` or `#123`) or a `https://github.com/owner/repository/pull/123` URL from the project's repository. Save the links; leave a field empty to remove it. Links use the ticket's version checks and appear in activity history. Ticket edits and board moves retain them. Local projects need a GitHub connection first; archived projects retain read-only links and cached status.
+
+The ticket shows the PR title, Draft/Open/Closed/Merged state, and related GitHub Actions runs with their commit SHAs. Saving links refreshes status; **Refresh development status** retries on demand. Linked PRs are polled every five minutes alongside existing build polling. Viewing tickets uses local cached data and does not contact GitHub. Give the GitHub App **Pull requests: read** permission and approve that permission update on its installation. Failures retain saved links and any last known PR state, with a visible error and refresh timestamp. Board moves remain manual; merging a PR does not move tickets automatically.
+
+For a linked PR, related builds match its last refreshed head SHA or merge commit SHA, scoped to the project's repository. A new head commit has no matching builds until its runs are imported; older green runs are not substituted. Without a PR, builds match the linked branch and source repository, excluding same-named fork branches. Existing runs without source-repository metadata become eligible after a GitHub refresh supplies it. Ticket refreshes fetch up to 30 runs for the branch or each PR commit, so busy repositories do not hide ticket builds behind unrelated recent runs. Up to 15 matching imported runs are displayed; missing runs and external check providers are not inferred as success. PR webhooks are not required: PR state uses polling and explicit refresh, while workflow webhooks continue to update builds.
 
 ## PostgreSQL
 

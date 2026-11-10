@@ -51,6 +51,7 @@ class WorkspaceIntegrationTest {
     db.update("DELETE FROM ticket_events");
     db.update("DELETE FROM tickets");
     db.update("DELETE FROM build_runs");
+    db.update("DELETE FROM pull_requests");
     db.update("DELETE FROM projects");
   }
 
@@ -564,11 +565,13 @@ class WorkspaceIntegrationTest {
       org.flywaydb.core.Flyway.configure().dataSource(url, "sa", "").load().migrate();
       try (var rows =
           statement.executeQuery(
-              "SELECT p.archived,t.title FROM projects p JOIN tickets t ON t.project_id=p.id WHERE"
-                  + " p.id=123")) {
+              "SELECT p.archived,t.title,t.branch,t.pull_request_number FROM projects p JOIN"
+                  + " tickets t ON t.project_id=p.id WHERE p.id=123")) {
         assertThat(rows.next()).isTrue();
         assertThat(rows.getBoolean("archived")).isFalse();
         assertThat(rows.getString("title")).isEqualTo("Existing ticket");
+        assertThat(rows.getString("branch")).isEmpty();
+        assertThat(rows.getObject("pull_request_number")).isNull();
       }
     }
   }
