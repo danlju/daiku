@@ -9,9 +9,15 @@ import dev.daiku.cicd.github.PullRequestStore;
 import dev.daiku.cicd.github.RepositoryService;
 import dev.daiku.core.ApplicationException;
 import dev.daiku.core.port.ProjectRepository;
+import dev.daiku.domain.build.BuildRun;
+import dev.daiku.domain.project.Project;
 import dev.daiku.domain.ticket.Ticket;
 import dev.daiku.domain.ticket.TicketStatus;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -159,8 +165,7 @@ public class WorkspaceController {
   public String board(@PathVariable long id, Model model) {
     var project = projects.get(id);
     var allTickets = tickets.forProject(id);
-    var columns =
-        new java.util.LinkedHashMap<TicketStatus, java.util.List<dev.daiku.domain.ticket.Ticket>>();
+    var columns = new LinkedHashMap<TicketStatus, List<Ticket>>();
     for (var status : TicketStatus.values())
       columns.put(status, allTickets.stream().filter(t -> t.status() == status).toList());
     model.addAttribute("project", project);
@@ -168,7 +173,57 @@ public class WorkspaceController {
     model.addAttribute("columns", columns);
     model.addAttribute("ticketCount", allTickets.size());
     model.addAttribute("builds", builds.recent(id));
+    model.addAttribute("developmentByTicket", boardDevelopment(project, allTickets));
     return "board";
+  }
+
+  private Map<Long, BoardDevelopment> boardDevelopment(Project project, List<Ticket> allTickets) {
+    var byTicket = new HashMap<Long, BoardDevelopment>();
+    var byPullRequest = new HashMap<Long, BoardDevelopment>();
+    var byBranch = new HashMap<String, BoardDevelopment>();
+    for (var ticket : allTickets) {
+      if (ticket.pullRequestNumber() != null) {
+        byTicket.put(
+            ticket.id(),
+            byPullRequest.computeIfAbsent(
+                ticket.pullRequestNumber(),
+                number -> {
+                  var pr = pullRequestStore.get(project.id(), number);
+                  return BoardDevelopment.summarize(
+                      pr == null ? "Not refreshed" : pr.getLabel(),
+                      builds.related(project, ticket, pr));
+                }));
+      } else if (!ticket.branch().isEmpty()) {
+        byTicket.put(
+            ticket.id(),
+            byBranch.computeIfAbsent(
+                ticket.branch(),
+                branch -> BoardDevelopment.summarize(null, builds.related(project, ticket, null))));
+      }
+    }
+    return byTicket;
+  }
+
+  record BoardDevelopment(String pullRequestState, int passed, int failed, int pending, int other) {
+    static BoardDevelopment summarize(String pullRequestState, List<BuildRun> runs) {
+      int passed = 0;
+      int failed = 0;
+      int pending = 0;
+      int other = 0;
+      for (var run : runs) {
+        switch (run.getTone()) {
+          case "success" -> passed++;
+          case "failure" -> failed++;
+          case "pending" -> pending++;
+          default -> other++;
+        }
+      }
+      return new BoardDevelopment(pullRequestState, passed, failed, pending, other);
+    }
+
+    public boolean hasRuns() {
+      return passed + failed + pending + other > 0;
+    }
   }
 
   @PostMapping("/projects/{id}/refresh")

@@ -27,4 +27,10 @@
 .development h3 { margin-top: 24px; }
 .development form { margin-top: 16px; }
 .pr-state { display: inline-block; margin-left: 8px; }
-.ticket-development { overflow-wrap: anywhere; }
+.ticket-development, .ticket-ci { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; }
+.ticket-development { margin-top: 8px; color: #536074; font-size: 10px; overflow-wrap: anywhere; }
+.ticket-ci { flex-basis: 100%; }
+.ticket-ci .success { color: #17684c; }
+.ticket-ci .failure { color: #a33b3b; }
+.ticket-ci .pending { color: #785c15; }
+.ticket-ci .neutral { color: #536074; }

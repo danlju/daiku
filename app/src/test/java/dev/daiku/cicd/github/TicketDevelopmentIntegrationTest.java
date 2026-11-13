@@ -123,6 +123,58 @@ class TicketDevelopmentIntegrationTest {
   }
 
   @Test
+  void boardSummarizesCachedPrAndBranchRunsAndDropsOldPrHeadRuns() throws Exception {
+    var p = connected();
+    long prTicket = tickets.create(p.id(), "Pull request", "", "", "MEDIUM");
+    long branchTicket = tickets.create(p.id(), "Branch only", "", "", "MEDIUM");
+    long unlinked = tickets.create(p.id(), "Unlinked", "", "", "MEDIUM");
+    tickets.linkDevelopment(prTicket, 0, "feature/work", "7");
+    tickets.linkDevelopment(branchTicket, 0, "feature/branch", "");
+    String board = "/projects/" + p.id();
+    var initial = mvc.perform(get(board)).andExpect(status().isOk()).andReturn();
+    String html = initial.getResponse().getContentAsString();
+    assertThat(ticketCard(html, prTicket)).contains("#7 Not refreshed", "No runs yet");
+    assertThat(ticketCard(html, unlinked)).doesNotContain("ticket-development", "ticket-ci");
+
+    pullRequestStore.save(p, 7, pr("open", true, false, HEAD));
+    builds.ingest(p, run(101, 100, HEAD, "feature/work", "PR tests").put("conclusion", "failure"));
+    builds.ingest(p, run(102, 100, HEAD, "feature/work", "PR lint").put("status", "in_progress"));
+    builds.ingest(p, run(103, 100, HEAD, "feature/work", "PR build"));
+    builds.ingest(p, run(104, 100, HEAD, "feature/work", "PR docs").put("conclusion", "skipped"));
+    String branchHead = "d".repeat(40);
+    builds.ingest(p, run(105, 100, branchHead, "feature/branch", "Branch tests"));
+    builds.ingest(
+        p, run(106, 999, branchHead, "feature/branch", "Fork tests").put("conclusion", "failure"));
+
+    var withRuns = mvc.perform(get(board)).andExpect(status().isOk()).andReturn();
+    html = withRuns.getResponse().getContentAsString();
+    assertThat(ticketCard(html, prTicket))
+        .contains("#7 Draft", "1 failed", "1 pending", "1 passed", "1 other")
+        .doesNotContain("No runs yet");
+    assertThat(ticketCard(html, branchTicket))
+        .contains("feature/branch", "1 passed")
+        .doesNotContain("failed", "#7");
+
+    pullRequestStore.save(
+        p,
+        7,
+        pr("open", false, false, NEXT)
+            .put("merge_commit_sha", "")
+            .put("updated_at", "2026-11-08T02:00:00Z"));
+    var newHead = mvc.perform(get(board)).andExpect(status().isOk()).andReturn();
+    assertThat(ticketCard(newHead.getResponse().getContentAsString(), prTicket))
+        .contains("#7 Open", "No runs yet")
+        .doesNotContain("passed", "failed", "pending", "other");
+    assertThat(tickets.get(prTicket).version()).isEqualTo(1);
+  }
+
+  private String ticketCard(String html, long id) {
+    int start = html.indexOf("data-ticket-id=\"" + id + "\"");
+    assertThat(start).isGreaterThanOrEqualTo(0);
+    return html.substring(start, html.indexOf("</article>", start));
+  }
+
+  @Test
   void branchOnlyLinkRefreshesFilteredBuildsWithoutRequiringPrAccess() throws Exception {
     var p = connected();
     long id = tickets.create(p.id(), "Branch only", "", "", "MEDIUM");

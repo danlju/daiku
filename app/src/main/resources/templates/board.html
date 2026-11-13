@@ -23,11 +23,21 @@
   <div class="board" aria-label="Task board" th:attr="data-csrf=${csrf}">
     <section class="column" th:each="column : ${columns}" th:attr="data-status=${column.key}">
       <div class="column-heading"><h3><span class="status-dot" th:classappend="${column.key.name().toLowerCase()}"></span><span th:text="${column.key.label}"></span></h3><span class="count" th:text="${column.value.size()}"></span></div>
-      <article class="ticket-card" th:each="ticket : ${column.value}" th:attr="data-version=${ticket.version},data-move-url=@{/tickets/{id}/status(id=${ticket.id})},data-ticket-id=${ticket.id}">
+      <article class="ticket-card" th:each="ticket : ${column.value}" th:with="development=${developmentByTicket[ticket.id]}" th:attr="data-version=${ticket.version},data-move-url=@{/tickets/{id}/status(id=${ticket.id})},data-ticket-id=${ticket.id}">
         <a class="ticket-link" th:href="@{/tickets/{id}(id=${ticket.id})}" draggable="false">
         <div class="ticket-top"><span th:text="${'DK-' + ticket.id}"></span><span class="priority" th:classappend="${ticket.priority.toLowerCase()}" th:text="${ticket.priority}"></span></div>
         <h4 th:text="${ticket.title}"></h4><p th:if="${!ticket.description.isEmpty()}" th:text="${ticket.description}"></p>
-        <p class="ticket-development" th:if="${!ticket.branch.isEmpty() or ticket.pullRequestNumber != null}"><span th:if="${!ticket.branch.isEmpty()}" th:text="${ticket.branch}"></span> <span th:if="${ticket.pullRequestNumber != null}" th:text="${'#' + ticket.pullRequestNumber}"></span></p>
+        <div class="ticket-development" th:if="${development != null}">
+          <span th:unless="${ticket.branch.isEmpty()}" th:text="${ticket.branch}"></span>
+          <span class="build-status" th:if="${ticket.pullRequestNumber != null}" th:text="|#${ticket.pullRequestNumber} ${development.pullRequestState}|"></span>
+          <div class="ticket-ci" role="group" aria-label="GitHub Actions runs">
+            <span class="build-status neutral" th:unless="${development.hasRuns()}">No runs yet</span>
+            <span class="build-status failure" th:if="${development.failed > 0}" th:text="|${development.failed} failed|"></span>
+            <span class="build-status pending" th:if="${development.pending > 0}" th:text="|${development.pending} pending|"></span>
+            <span class="build-status success" th:if="${development.passed > 0}" th:text="|${development.passed} passed|"></span>
+            <span class="build-status neutral" th:if="${development.other > 0}" th:text="|${development.other} other|"></span>
+          </div>
+        </div>
         <div class="ticket-footer"><span class="avatar">Y</span> You <span class="ticket-arrow">↗</span></div>
         </a>
         <select class="ticket-move" hidden th:attr="aria-label=${'Move DK-' + ticket.id + ' to'}">
